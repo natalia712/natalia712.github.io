@@ -1,17 +1,20 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <title>Redirigiendo…</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <!-- Redirección inmediata hacia tu app -->
-    <meta http-equiv="refresh" content="0; url=membresia_app.html" />
-    <script>
-      // Fallback por si el meta refresh no corre
-      location.replace('membresia_app.html');
-    </script>
-  </head>
-  <body>
-    <p>Redirigiendo a la aplicación… Si no avanza, <a href="membresia_app.html">toca aquí</a>.</p>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Redirigiendo…</title>
+  <!-- Redirección inmediata al archivo principal de tu app -->
+  <meta http-equiv="refresh" content="0; url=membresia_app.html?v=1" />
+</head>
+<body>
+  <script>
+    // Fallback por si el meta no funciona
+    location.replace('membresia_app.html?v=1');
+  </script>
+  <noscript>
+    Si no redirige automáticamente, abre
+    <a href="membresia_app.html?v=1">esta página</a>.
+  </noscript>
+</body>
 </html>
