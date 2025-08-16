@@ -1,0 +1,1719 @@
+<!DOCTYPE html>
+<!--
+  Aplicación de Membresías en Español
+
+  Este archivo HTML implementa una aplicación web sencilla que permite:
+  1. Registrar personas con un número de membresía único y generar un código QR.
+  2. Asignar fechas de inicio y caducidad a cada membresía, con posibilidad de
+     extender la vigencia registrando un nuevo pago.
+  3. Registrar la entrada y salida de los miembros introduciendo su número de
+     membresía (equivalente al escaneo del código QR) y almacenar un registro
+     de accesos.
+  4. Identificar visualmente si la membresía está activa o caducada mediante
+     colores (verde para activo, rojo para caducado).
+
+  Para mantener los datos entre sesiones, la aplicación utiliza localStorage,
+  por lo que funciona de forma completamente local y sin necesidad de un
+  servidor. El diseño está pensado para dispositivos móviles: emplea un
+  diseño fluido y botones grandes para facilitar su uso en pantallas táctiles.
+
+  Para generar los códigos QR se integra la librería JavaScript qrcode.js, que
+  no tiene dependencias externas y permite crear códigos QR en el navegador
+  sin dependencias externas【367629212339685†L11-L13】.  Toda la aplicación está en español.
+-->
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestión de Membresías</title>
+  <!-- Manifest para habilitar PWA -->
+  <link rel="manifest" href="manifest.json">
+  <style>
+    :root {
+      --color-principal: #00796b;
+      --color-principal-oscuro: #004d40;
+      --color-activo: #4caf50;
+      --color-caducado: #f44336;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f7f7f7;
+      color: #333;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--color-principal);
+      color: white;
+      padding: 15px;
+      /* Alineamos el logo y el título en una fila centrada */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    h1 {
+      font-size: 1.6em;
+      margin: 0;
+    }
+
+    /* Tamaño y separación del logo */
+    #app-logo {
+      height: 40px;
+      margin-right: 10px;
+    }
+    .nav {
+      display: flex;
+      justify-content: space-around;
+      background: var(--color-principal-oscuro);
+    }
+    .nav button {
+      flex: 1;
+      padding: 12px 5px;
+      background: var(--color-principal);
+      border: none;
+      color: white;
+      font-size: 1em;
+      cursor: pointer;
+    }
+    .nav button.active {
+      background: var(--color-principal-oscuro);
+    }
+    .content {
+      flex: 1;
+      padding: 15px;
+    }
+    .section {
+      display: none;
+    }
+    .section.active {
+      display: block;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+    }
+    label {
+      margin-top: 10px;
+      margin-bottom: 4px;
+      font-weight: bold;
+    }
+    input, select {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 1em;
+    }
+    button.action {
+      margin-top: 15px;
+      padding: 12px;
+      background: var(--color-principal);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 1em;
+      cursor: pointer;
+    }
+    button.action:hover {
+      background: var(--color-principal-oscuro);
+    }
+    .estado {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      color: white;
+      font-weight: bold;
+      margin-left: 5px;
+    }
+    .estado.activo {
+      background: var(--color-activo);
+    }
+    .estado.caducado {
+      background: var(--color-caducado);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+    table th, table td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      font-size: 0.9em;
+    }
+    table th {
+      background: #e0f2f1;
+      text-align: left;
+    }
+    #logs {
+      margin-top: 15px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    #logs table td {
+      font-size: 0.85em;
+    }
+    .qr-img {
+      margin-top: 10px;
+    }
+    @media (max-width: 600px) {
+      h1 {
+        font-size: 1.3em;
+      }
+      .nav button {
+        font-size: 0.9em;
+        padding: 10px 2px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <!-- Logo proporcionado por el usuario junto al título -->
+    <img src="logo.png" alt="Logo" id="app-logo">
+    <h1>Aplicación de Membresías</h1>
+  </header>
+  <nav class="nav">
+    <button class="active" data-target="registro">Registro</button>
+    <button data-target="extender">Extender</button>
+    <button data-target="control">Entrada/Salida</button>
+    <button data-target="miembros">Miembros</button>
+  </nav>
+  <div class="content">
+    <!-- Sección Registro -->
+    <section id="registro" class="section active">
+      <h2>Registrar nuevo miembro</h2>
+      <form id="form-registro">
+        <label for="reg-numero">Número de membresía</label>
+        <input type="text" id="reg-numero" required placeholder="Ej. 0001">
+        <label for="reg-nombre">Nombre</label>
+        <input type="text" id="reg-nombre" required placeholder="Nombre completo">
+        <label for="reg-telefono">Teléfono</label>
+        <input type="tel" id="reg-telefono" required placeholder="Número telefónico">
+        <label for="reg-email">Correo electrónico</label>
+        <input type="email" id="reg-email" placeholder="Correo electrónico">
+        <label for="reg-tipo">Tipo de membresía</label>
+        <select id="reg-tipo" required>
+          <option value="Diaria">Diaria (1 día)</option>
+          <option value="Mensual" selected>Mensual (30 días)</option>
+          <option value="VIP">VIP (30 días)</option>
+        </select>
+        <label for="reg-inicio">Fecha de inicio</label>
+        <input type="date" id="reg-inicio" required>
+        <label for="reg-fin">Fecha de caducidad</label>
+        <input type="date" id="reg-fin" required>
+        <button type="submit" class="action">Registrar</button>
+      </form>
+      <div id="resultado-registro" style="margin-top:15px;"></div>
+    </section>
+
+    <!-- Sección Extender -->
+    <section id="extender" class="section">
+      <h2>Extender membresía</h2>
+      <form id="form-buscar-ext">
+        <label for="ext-numero">Número de membresía</label>
+        <input type="text" id="ext-numero" required placeholder="Ingrese número de membresía">
+        <button type="submit" class="action">Buscar</button>
+      </form>
+      <div id="ext-detalles" style="margin-top:15px;"></div>
+    </section>
+
+    <!-- Sección Control de acceso -->
+    <section id="control" class="section">
+      <h2>Control de acceso</h2>
+      <!-- Controles para escaneo automático mediante la cámara -->
+      <button id="btn-iniciar-escanear" type="button" class="action">Activar cámara</button>
+      <button id="btn-detener-escanear" type="button" class="action" style="display:none;">Detener cámara</button>
+      <video id="qr-video" style="width:100%;max-width:350px;margin-top:10px;display:none;" playsinline></video>
+      <div id="scan-mensaje" style="margin-top:10px;"></div>
+      <div id="dentro-lista" style="margin-top:10px;"></div>
+      <!-- Selector de fecha para ver el resumen de movimientos de un día específico -->
+      <label for="resumen-fecha" style="margin-top:15px;display:block;">Seleccionar fecha para resumen:</label>
+      <input type="date" id="resumen-fecha" style="padding:8px;border:1px solid #ccc;border-radius:4px;margin-bottom:10px;">
+      <div id="resumen-movimientos" style="margin-top:10px;"></div>
+      <!-- Botones de exportación para los registros de accesos -->
+      <div id="logs-export" style="margin-top:10px;">
+        <button type="button" class="action" id="btn-exp-logs-csv" style="margin-right:5px;">Exportar Logs (CSV)</button>
+        <button type="button" class="action" id="btn-exp-logs-pdf">Exportar Logs (PDF)</button>
+      </div>
+
+      <!-- Configuración de sonidos personalizados para entrada y salida -->
+      <div id="sonidos-config" style="margin-top:10px;">
+        <label style="display:block;margin-bottom:5px;">Sonido Entrada:
+          <input type="file" id="sonido-entrada-input" accept="audio/*">
+        </label>
+        <label style="display:block;">Sonido Salida:
+          <input type="file" id="sonido-salida-input" accept="audio/*">
+        </label>
+      </div>
+      <hr>
+      <h3>Registro manual</h3>
+      <!-- Formulario para registrar acceso manual en caso de no usar la cámara -->
+      <form id="form-buscar-control">
+        <label for="ctl-numero">Número de membresía</label>
+        <input type="text" id="ctl-numero" required placeholder="Escanee o ingrese el número">
+        <button type="submit" class="action">Verificar</button>
+      </form>
+      <div id="ctl-detalles" style="margin-top:15px;"></div>
+      <div id="logs"></div>
+    </section>
+
+    <!-- Sección Lista de miembros -->
+    <section id="miembros" class="section">
+      <h2>Lista de miembros</h2>
+      <!-- Botones de exportación para la lista de miembros -->
+      <div id="miembros-export" style="margin-bottom:10px;">
+        <button type="button" class="action" id="btn-exp-miembros-csv" style="margin-right:5px;">Exportar Miembros (CSV)</button>
+        <button type="button" class="action" id="btn-exp-miembros-pdf">Exportar Miembros (PDF)</button>
+        <!-- Botones para exportar los pagos de todos los miembros -->
+        <button type="button" class="action" id="btn-exp-pagos-csv" style="margin-left:5px;">Exportar Pagos (CSV)</button>
+        <button type="button" class="action" id="btn-exp-pagos-pdf" style="margin-left:5px;">Exportar Pagos (PDF)</button>
+      </div>
+      <div id="tabla-miembros"></div>
+    </section>
+  </div>
+
+  <!-- Librería QRCode.js cargada externamente -->
+  <script src="qrcode.min.js"></script>
+
+  <script>
+    // Funciones de utilidad para la gestión de datos
+    function cargarMiembros() {
+      const datos = localStorage.getItem('miembros');
+      return datos ? JSON.parse(datos) : [];
+    }
+    function guardarMiembros(miembros) {
+      localStorage.setItem('miembros', JSON.stringify(miembros));
+    }
+    function cargarLogs() {
+      const datos = localStorage.getItem('logs');
+      return datos ? JSON.parse(datos) : [];
+    }
+    function guardarLogs(logs) {
+      localStorage.setItem('logs', JSON.stringify(logs));
+    }
+
+    // Funciones para gestionar los pagos de membresías
+    function cargarPagos() {
+      const datos = localStorage.getItem('pagos');
+      return datos ? JSON.parse(datos) : [];
+    }
+    function guardarPagos(pagos) {
+      localStorage.setItem('pagos', JSON.stringify(pagos));
+    }
+    /**
+     * Registra un pago para un número de membresía. Guarda cantidad, tipo
+     * (plan de membresía) y fecha/hora actual en ISO. La cantidad se
+     * convierte a número flotante.
+     * @param {string} numero - Número de membresía
+     * @param {number|string} cantidad - Monto pagado
+     * @param {string} tipo - Tipo de membresía
+     */
+    function agregarPago(numero, cantidad, tipo) {
+      const pagos = cargarPagos();
+      const monto = parseFloat(cantidad);
+      if (isNaN(monto)) {
+        alert('La cantidad ingresada no es válida.');
+        return;
+      }
+      pagos.push({ numero, cantidad: monto, tipo, fecha: new Date().toISOString() });
+      guardarPagos(pagos);
+    }
+    /**
+     * Formatea una fecha en formato "YYYY-MM-DD" a "MM/DD/YYYY".
+     * Se evita crear un objeto Date para prevenir desajustes por zona horaria.
+     */
+    function formatearFecha(fechaStr) {
+      if (!fechaStr || typeof fechaStr !== 'string') return '';
+      const parts = fechaStr.split('-');
+      if (parts.length !== 3) return fechaStr;
+      const [yyyy, mm, dd] = parts;
+      return `${mm}/${dd}/${yyyy}`;
+    }
+    function estadoMiembro(miembro) {
+      const hoy = new Date().setHours(0,0,0,0);
+      const caducidad = new Date(miembro.fin).setHours(0,0,0,0);
+      return caducidad >= hoy ? 'activo' : 'caducado';
+    }
+
+    /**
+     * Actualiza la fecha de caducidad del formulario de registro dependiendo
+     * del tipo de membresía seleccionado. Para la membresía diaria la caducidad
+     * será el mismo día de inicio; para mensual y VIP se suman 30 días.
+     */
+    function actualizarCaducidadPorTipo() {
+      const tipo = document.getElementById('reg-tipo')?.value;
+      const inicioStr = document.getElementById('reg-inicio')?.value;
+      if (!tipo || !inicioStr) return;
+      const inicio = new Date(inicioStr);
+      let fin;
+      if (tipo === 'Diaria') {
+        // Caduca el mismo día
+        fin = new Date(inicio);
+      } else {
+        // Mensual y VIP duran 30 días
+        fin = new Date(inicio);
+        fin.setDate(fin.getDate() + 30);
+      }
+      document.getElementById('reg-fin').value = fin.toISOString().slice(0,10);
+    }
+
+    // Inicialización de fechas por defecto en el formulario de registro
+    function inicializarFechas() {
+      const hoy = new Date();
+      const unAno = new Date(hoy);
+      unAno.setFullYear(unAno.getFullYear() + 1);
+      document.getElementById('reg-inicio').value = hoy.toISOString().slice(0,10);
+      document.getElementById('reg-fin').value = unAno.toISOString().slice(0,10);
+      // Ajustar fecha de caducidad según el tipo seleccionado
+      actualizarCaducidadPorTipo();
+    }
+
+    // Navegación entre secciones
+    document.querySelectorAll('.nav button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const target = btn.getAttribute('data-target');
+        document.querySelectorAll('.section').forEach(sec => {
+          if (sec.id === target) sec.classList.add('active'); else sec.classList.remove('active');
+        });
+        // refrescar listas cuando corresponde
+        if (target === 'miembros') {
+          mostrarMiembros();
+        }
+      });
+    });
+
+    // Registro de miembro
+    document.getElementById('form-registro').addEventListener('submit', function(event) {
+      event.preventDefault();
+      const numero = document.getElementById('reg-numero').value.trim();
+      const nombre = document.getElementById('reg-nombre').value.trim();
+      const telefono = document.getElementById('reg-telefono').value.trim();
+      const email = document.getElementById('reg-email').value.trim();
+      const tipo = document.getElementById('reg-tipo').value;
+      const inicio = document.getElementById('reg-inicio').value;
+      const fin = document.getElementById('reg-fin').value;
+      // Validar campos obligatorios
+      if (!numero || !nombre || !telefono || !inicio || !fin || !tipo) {
+        alert('Por favor complete todos los campos obligatorios.');
+        return;
+      }
+      const miembros = cargarMiembros();
+      // verificar duplicado
+      if (miembros.some(m => m.numero === numero)) {
+        alert('Ya existe un miembro con ese número.');
+        return;
+      }
+      // Generar el código QR y guardar el miembro una vez generado
+      crearQRDataURL(numero, function(dataUrl) {
+        const nuevo = { numero, nombre, telefono, email, tipo, inicio, fin, qr: dataUrl };
+        miembros.push(nuevo);
+        guardarMiembros(miembros);
+        document.getElementById('reg-numero').value = '';
+        document.getElementById('reg-nombre').value = '';
+        document.getElementById('reg-telefono').value = '';
+        document.getElementById('reg-email').value = '';
+        inicializarFechas();
+        mostrarResultadoRegistro(nuevo);
+      });
+    });
+
+    function mostrarResultadoRegistro(miembro) {
+      const cont = document.getElementById('resultado-registro');
+      cont.innerHTML = '';
+      const titulo = document.createElement('p');
+      titulo.textContent = `Miembro ${miembro.nombre} registrado con éxito.`;
+      const img = document.createElement('img');
+      img.src = miembro.qr;
+      img.alt = 'Código QR';
+      img.width = 128;
+      img.height = 128;
+      img.className = 'qr-img';
+      const descarga = document.createElement('a');
+      descarga.href = miembro.qr;
+      descarga.download = `qr_${miembro.numero}.png`;
+      descarga.textContent = 'Descargar QR';
+      descarga.style.display = 'block';
+      descarga.style.marginTop = '8px';
+      cont.appendChild(titulo);
+      cont.appendChild(img);
+      cont.appendChild(descarga);
+      // Botón para compartir el QR por WhatsApp con un mensaje personalizado
+      const btnEnviar = document.createElement('button');
+      btnEnviar.type = 'button';
+      btnEnviar.className = 'action';
+      btnEnviar.textContent = 'Enviar por WhatsApp';
+      btnEnviar.style.marginTop = '10px';
+      btnEnviar.addEventListener('click', () => compartirQR(miembro));
+      cont.appendChild(btnEnviar);
+    }
+
+    // Extender membresía
+    document.getElementById('form-buscar-ext').addEventListener('submit', function(event) {
+      event.preventDefault();
+      const numero = document.getElementById('ext-numero').value.trim();
+      const miembros = cargarMiembros();
+      const miembro = miembros.find(m => m.numero === numero);
+      const cont = document.getElementById('ext-detalles');
+      cont.innerHTML = '';
+      if (!miembro) {
+        cont.textContent = 'No se encontró ningún miembro con ese número.';
+        return;
+      }
+      // mostrar datos actuales y formulario para nueva fecha
+      const info = document.createElement('p');
+      // Mostrar datos básicos del miembro, incluyendo teléfono y correo
+      info.innerHTML = `<strong>Nombre:</strong> ${miembro.nombre}` +
+        (miembro.telefono ? `<br><strong>Teléfono:</strong> ${miembro.telefono}` : '') +
+        (miembro.email ? `<br><strong>Correo:</strong> ${miembro.email}` : '') +
+        (miembro.tipo ? `<br><strong>Tipo:</strong> ${miembro.tipo}` : '') +
+        `<br><strong>Inicio:</strong> ${formatearFecha(miembro.inicio)}` +
+        `<br><strong>Caducidad actual:</strong> ${formatearFecha(miembro.fin)}`;
+      const form = document.createElement('form');
+      form.id = 'form-extender-fecha';
+      const label = document.createElement('label');
+      label.textContent = 'Nueva fecha de caducidad';
+      label.setAttribute('for','ext-nueva-fecha');
+      const input = document.createElement('input');
+      input.type = 'date';
+      input.id = 'ext-nueva-fecha';
+      input.required = true;
+      input.value = miembro.fin;
+      const btnGuardar = document.createElement('button');
+      btnGuardar.type = 'submit';
+      btnGuardar.className = 'action';
+      btnGuardar.textContent = 'Guardar';
+      form.appendChild(label);
+      form.appendChild(input);
+      form.appendChild(btnGuardar);
+      form.addEventListener('submit', function(ev) {
+        ev.preventDefault();
+        const nueva = document.getElementById('ext-nueva-fecha').value;
+        if (!nueva) {
+          alert('Debe seleccionar una nueva fecha.');
+          return;
+        }
+        miembro.fin = nueva;
+        guardarMiembros(miembros);
+        cont.innerHTML = '';
+        const ok = document.createElement('p');
+        ok.textContent = 'La fecha de caducidad ha sido actualizada.';
+        cont.appendChild(ok);
+      });
+      cont.appendChild(info);
+      cont.appendChild(form);
+    });
+
+    // Control de acceso
+    document.getElementById('form-buscar-control').addEventListener('submit', function(event) {
+      event.preventDefault();
+      const numero = document.getElementById('ctl-numero').value.trim();
+      const miembros = cargarMiembros();
+      const miembro = miembros.find(m => m.numero === numero);
+      const cont = document.getElementById('ctl-detalles');
+      const logsDiv = document.getElementById('logs');
+      cont.innerHTML = '';
+      logsDiv.innerHTML = '';
+      if (!miembro) {
+        cont.textContent = 'No se encontró ningún miembro con ese número.';
+        return;
+      }
+      const estado = estadoMiembro(miembro);
+      const info = document.createElement('div');
+      info.innerHTML = `<p><strong>Nombre:</strong> ${miembro.nombre}</p>` +
+        (miembro.telefono ? `<p><strong>Teléfono:</strong> ${miembro.telefono}</p>` : '') +
+        (miembro.email ? `<p><strong>Correo:</strong> ${miembro.email}</p>` : '') +
+        (miembro.tipo ? `<p><strong>Tipo:</strong> ${miembro.tipo}</p>` : '') +
+        `<p><strong>Inicio:</strong> ${formatearFecha(miembro.inicio)}</p>` +
+        `<p><strong>Caducidad:</strong> ${formatearFecha(miembro.fin)} <span class="estado ${estado}">${estado.toUpperCase()}</span></p>`;
+      cont.appendChild(info);
+      // botones de entrada y salida
+      const btnEntrada = document.createElement('button');
+      btnEntrada.type = 'button';
+      btnEntrada.className = 'action';
+      btnEntrada.textContent = 'Registrar entrada';
+      const btnSalida = document.createElement('button');
+      btnSalida.type = 'button';
+      btnSalida.className = 'action';
+      btnSalida.textContent = 'Registrar salida';
+      btnEntrada.addEventListener('click', () => registrarLog(miembro.numero, 'Entrada'));
+      btnSalida.addEventListener('click', () => registrarLog(miembro.numero, 'Salida'));
+      // Determinar último registro para habilitar/deshabilitar según corresponda
+      const logsMiembro = cargarLogs().filter(l => l.numero === miembro.numero);
+      logsMiembro.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
+      let ultimo = null;
+      if (logsMiembro.length > 0) ultimo = logsMiembro[logsMiembro.length - 1].tipo;
+      if (ultimo === 'Entrada') {
+        // Ya está dentro, solo permitir salida
+        btnEntrada.disabled = true;
+        btnSalida.disabled = false;
+      } else {
+        // No está dentro, solo permitir entrada
+        btnEntrada.disabled = false;
+        btnSalida.disabled = true;
+      }
+      cont.appendChild(btnEntrada);
+      cont.appendChild(btnSalida);
+      // mostrar logs
+      mostrarLogs(miembro.numero);
+    });
+
+    function registrarLog(numero, tipo) {
+      const logs = cargarLogs();
+      const fecha = new Date().toISOString();
+      logs.push({ numero, tipo, fecha });
+      guardarLogs(logs);
+      mostrarLogs(numero);
+      // Actualizar listas de personas dentro y resumen diario
+      actualizarDentroYResumen();
+      // Reproducir el sonido correspondiente a la entrada o salida
+      reproducirSonido(tipo);
+      // Si el número coincide con el campo de búsqueda manual, volver a cargar los detalles para
+      // deshabilitar el botón correspondiente (evita doble entrada o salida)
+      const campo = document.getElementById('ctl-numero');
+      const form = document.getElementById('form-buscar-control');
+      if (campo && form && campo.value && campo.value.trim() === numero) {
+        // disparar evento submit manualmente para refrescar botones
+        const ev = new Event('submit');
+        form.dispatchEvent(ev);
+      }
+    }
+    function mostrarLogs(numero) {
+      const logs = cargarLogs().filter(l => l.numero === numero);
+      const logsDiv = document.getElementById('logs');
+      logsDiv.innerHTML = '';
+      if (logs.length === 0) {
+        logsDiv.textContent = 'No hay registros de acceso.';
+        return;
+      }
+      const tabla = document.createElement('table');
+      const thead = document.createElement('thead');
+      const th1 = document.createElement('th'); th1.textContent = 'Fecha y hora';
+      const th2 = document.createElement('th'); th2.textContent = 'Tipo';
+      thead.appendChild(th1);
+      thead.appendChild(th2);
+      tabla.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      logs.sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
+      logs.forEach(log => {
+        const tr = document.createElement('tr');
+        const tdFecha = document.createElement('td');
+        const f = new Date(log.fecha);
+        tdFecha.textContent = f.toLocaleString('es-PR');
+        const tdTipo = document.createElement('td');
+        tdTipo.textContent = log.tipo;
+        tr.appendChild(tdFecha);
+        tr.appendChild(tdTipo);
+        tbody.appendChild(tr);
+      });
+      tabla.appendChild(tbody);
+      logsDiv.appendChild(tabla);
+    }
+
+    // Mostrar tabla de miembros
+    function mostrarMiembros() {
+      const miembros = cargarMiembros();
+      const cont = document.getElementById('tabla-miembros');
+      cont.innerHTML = '';
+      if (miembros.length === 0) {
+        cont.textContent = 'No hay miembros registrados.';
+        return;
+      }
+      const tabla = document.createElement('table');
+      const thead = document.createElement('thead');
+      // Añadimos una columna de Teléfono a la tabla
+      // Añadimos una columna "Acciones" para descargar la credencial y compartir por WhatsApp
+      // Incluimos también las acciones de editar y eliminar junto a la credencial y WhatsApp
+      const titulos = ['Número', 'Nombre', 'Teléfono', 'Correo', 'Tipo', 'Inicio', 'Caducidad', 'Estado', 'QR', 'Acciones'];
+      const trh = document.createElement('tr');
+      titulos.forEach(t => { const th = document.createElement('th'); th.textContent = t; trh.appendChild(th); });
+      thead.appendChild(trh);
+      tabla.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      miembros.forEach(m => {
+        const tr = document.createElement('tr');
+        // Número
+        const tdNumero = document.createElement('td');
+        tdNumero.textContent = m.numero;
+        // Nombre
+        const tdNombre = document.createElement('td');
+        tdNombre.textContent = m.nombre;
+        // Teléfono (si no existe, dejar vacío)
+        const tdTel = document.createElement('td');
+        tdTel.textContent = m.telefono ? m.telefono : '';
+        // Correo electrónico
+        const tdEmail = document.createElement('td');
+        tdEmail.textContent = m.email ? m.email : '';
+        // Tipo de membresía
+        const tdTipo = document.createElement('td');
+        tdTipo.textContent = m.tipo ? m.tipo : '';
+        // Inicio y caducidad formateadas
+        const tdInicio = document.createElement('td');
+        tdInicio.textContent = formatearFecha(m.inicio);
+        const tdFin = document.createElement('td');
+        tdFin.textContent = formatearFecha(m.fin);
+        // Estado
+        const tdEstado = document.createElement('td');
+        const est = estadoMiembro(m);
+        const span = document.createElement('span');
+        span.className = 'estado ' + est;
+        span.textContent = est.toUpperCase();
+        tdEstado.appendChild(span);
+        // QR
+        const tdQR = document.createElement('td');
+        const img = document.createElement('img');
+        img.src = m.qr;
+        img.alt = 'QR';
+        img.width = 60;
+        img.height = 60;
+        tdQR.appendChild(img);
+        // Acciones: generar credencial y compartir por WhatsApp
+        const tdAcc = document.createElement('td');
+        // Botón de Credencial
+        const btnCredencial = document.createElement('button');
+        btnCredencial.type = 'button';
+        btnCredencial.className = 'action';
+        btnCredencial.textContent = 'Credencial';
+        btnCredencial.style.marginRight = '5px';
+        btnCredencial.addEventListener('click', () => generarCredencial(m));
+        // Botón de WhatsApp
+        const btnWhatsApp = document.createElement('button');
+        btnWhatsApp.type = 'button';
+        btnWhatsApp.className = 'action';
+        btnWhatsApp.textContent = 'WhatsApp';
+        btnWhatsApp.style.marginRight = '5px';
+        btnWhatsApp.addEventListener('click', () => enviarWhatsApp(m));
+        // Botón de Pagos
+        const btnPagos = document.createElement('button');
+        btnPagos.type = 'button';
+        btnPagos.className = 'action';
+        btnPagos.textContent = 'Pagos';
+        btnPagos.style.marginRight = '5px';
+        btnPagos.addEventListener('click', () => administrarPagos(m));
+
+        // Botón de Editar
+        const btnEditar = document.createElement('button');
+        btnEditar.type = 'button';
+        btnEditar.className = 'action';
+        btnEditar.textContent = 'Editar';
+        btnEditar.style.marginRight = '5px';
+        btnEditar.addEventListener('click', () => editarMiembro(m));
+        // Botón de Eliminar
+        const btnEliminar = document.createElement('button');
+        btnEliminar.type = 'button';
+        btnEliminar.className = 'action';
+        btnEliminar.textContent = 'Eliminar';
+        btnEliminar.addEventListener('click', () => eliminarMiembro(m.numero));
+        tdAcc.appendChild(btnCredencial);
+        tdAcc.appendChild(btnWhatsApp);
+        tdAcc.appendChild(btnPagos);
+        tdAcc.appendChild(btnEditar);
+        tdAcc.appendChild(btnEliminar);
+        // Agregar todas las celdas a la fila
+        tr.appendChild(tdNumero);
+        tr.appendChild(tdNombre);
+        tr.appendChild(tdTel);
+        tr.appendChild(tdEmail);
+        tr.appendChild(tdTipo);
+        tr.appendChild(tdInicio);
+        tr.appendChild(tdFin);
+        tr.appendChild(tdEstado);
+        tr.appendChild(tdQR);
+        tr.appendChild(tdAcc);
+        tbody.appendChild(tr);
+      });
+      tabla.appendChild(tbody);
+      cont.appendChild(tabla);
+    }
+
+    /**
+     * Elimina un miembro dado su número de membresía. Se solicita confirmación
+     * al usuario antes de eliminar. Además, elimina cualquier registro de
+     * acceso asociado al número en la lista de logs.
+     * @param {string} numero - Número de membresía a eliminar
+     */
+    function eliminarMiembro(numero) {
+      if (!numero) return;
+      if (!confirm('¿Está seguro de eliminar al miembro ' + numero + '?')) return;
+      const miembros = cargarMiembros();
+      const nuevos = miembros.filter(m => m.numero !== numero);
+      guardarMiembros(nuevos);
+      // También eliminar registros de logs relacionados
+      const logs = cargarLogs().filter(l => l.numero !== numero);
+      guardarLogs(logs);
+      mostrarMiembros();
+      actualizarDentroYResumen();
+    }
+
+    /**
+     * Permite editar los datos de un miembro (número y nombre). Si el número
+     * cambia, se valida que no exista otro miembro con ese mismo número y se
+     * regenera el código QR. Se actualizan los registros de accesos para
+     * reflejar el nuevo número. Se usan ventanas prompt simples para
+     * solicitar los nuevos valores.
+     * @param {Object} miembro - Objeto del miembro a editar
+     */
+    function editarMiembro(miembro) {
+      if (!miembro) return;
+      // Cargar datos actuales para trabajar sobre ellos
+      const miembros = cargarMiembros();
+      const logs = cargarLogs();
+      // Solicitar nuevo número
+      const nuevoNumero = prompt('Editar número de membresía:', miembro.numero);
+      if (nuevoNumero === null) return; // Cancelado
+      const numTrim = nuevoNumero.trim();
+      if (numTrim === '') {
+        alert('El número de membresía no puede estar vacío.');
+        return;
+      }
+      // Solicitar nuevo nombre
+      const nuevoNombre = prompt('Editar nombre:', miembro.nombre);
+      if (nuevoNombre === null) return;
+      const nombreTrim = nuevoNombre.trim();
+      if (nombreTrim === '') {
+        alert('El nombre no puede estar vacío.');
+        return;
+      }
+
+      // Solicitar nuevo teléfono
+      const nuevoTel = prompt('Editar teléfono:', miembro.telefono || '');
+      if (nuevoTel === null) return;
+      const telTrim = nuevoTel.trim();
+
+      // Solicitar nuevo correo electrónico
+      const nuevoEmail = prompt('Editar correo electrónico:', miembro.email || '');
+      if (nuevoEmail === null) return;
+      const emailTrim = nuevoEmail.trim();
+      // Localizar el miembro en la lista de almacenamiento utilizando el número actual
+      const index = miembros.findIndex(m => m.numero === miembro.numero);
+      if (index === -1) {
+        alert('No se pudo localizar el miembro en la lista.');
+        return;
+      }
+      const oldNumero = miembros[index].numero;
+      // Comprobar duplicado si el número cambia
+      if (numTrim !== oldNumero && miembros.some(m => m.numero === numTrim)) {
+        alert('Ya existe un miembro con ese número.');
+        return;
+      }
+      // Actualizar datos en el array
+      miembros[index].numero = numTrim;
+      miembros[index].nombre = nombreTrim;
+      miembros[index].telefono = telTrim;
+      miembros[index].email = emailTrim;
+      // Función para finalizar la actualización (guardar y refrescar)
+      const finalizar = function() {
+        // Actualizar logs con el nuevo número
+        logs.forEach(l => {
+          if (l.numero === oldNumero) l.numero = numTrim;
+        });
+        guardarLogs(logs);
+        guardarMiembros(miembros);
+        mostrarMiembros();
+        actualizarDentroYResumen();
+      };
+      // Si cambió el número, regenerar QR
+      if (numTrim !== oldNumero) {
+        crearQRDataURL(numTrim, function(dataURL) {
+          miembros[index].qr = dataURL;
+          finalizar();
+        });
+      } else {
+        finalizar();
+      }
+    }
+
+    /**
+     * Genera un código QR en formato dataURL utilizando la librería QRCode.js.
+     * Crea un contenedor temporal en el DOM, genera el QR y espera hasta que
+     * aparezca la imagen o el canvas para extraer el dataURL. Luego elimina
+     * el contenedor temporal y llama al callback con el dataURL.
+     * @param {string} texto - El texto que codificará el QR.
+     * @param {Function} callback - Función a llamar con el dataURL generado.
+     */
+    function crearQRDataURL(texto, callback) {
+      const tempDiv = document.createElement('div');
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.left = '-9999px';
+      tempDiv.style.top = '-9999px';
+      document.body.appendChild(tempDiv);
+      const qr = new QRCode(tempDiv, {
+        text: texto,
+        width: 128,
+        height: 128
+      });
+      const maxAttempts = 20;
+      let attempts = 0;
+      const interval = setInterval(() => {
+        attempts++;
+        const img = tempDiv.querySelector('img');
+        const canvas = tempDiv.querySelector('canvas');
+        let dataURL;
+        if (img && img.src) {
+          dataURL = img.src;
+        } else if (canvas) {
+          try {
+            dataURL = canvas.toDataURL('image/png');
+          } catch (e) {
+            // ignored
+          }
+        }
+        if (dataURL) {
+          clearInterval(interval);
+          document.body.removeChild(tempDiv);
+          callback(dataURL);
+        } else if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          document.body.removeChild(tempDiv);
+          // Fallback: return empty string or original text
+          callback('');
+        }
+      }, 100);
+    }
+
+    /**
+     * Genera una imagen tipo credencial (licencia) para un miembro. La credencial
+     * incluye el logo proporcionado, el código QR del miembro y sus datos
+     * (número, nombre, tipo, fecha de inicio y caducidad, y estado). La imagen
+     * se dibuja en un lienzo y se abre en una nueva ventana para que el usuario
+     * pueda descargarla. Si el navegador bloquea la ventana emergente, se crea
+     * un enlace de descarga en la página actual.
+     * @param {Object} miembro - Objeto con los datos del miembro.
+     */
+    function generarCredencial(miembro) {
+      const canvas = document.createElement('canvas');
+      const width = 600;
+      const height = 350;
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      // Fondo blanco
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      // Cargar imágenes del logo y QR
+      const logoImg = new Image();
+      // Usamos la misma imagen que se muestra en el encabezado para evitar problemas de rutas
+      const logoElement = document.getElementById('app-logo');
+      logoImg.src = logoElement && logoElement.src ? logoElement.src : 'logo.png';
+      const qrImg = new Image();
+      qrImg.src = miembro.qr;
+      Promise.all([
+        new Promise(res => { logoImg.onload = res; }),
+        new Promise(res => { qrImg.onload = res; })
+      ]).then(() => {
+        const logoSize = 80;
+        ctx.drawImage(logoImg, 20, 20, logoSize, logoSize);
+        const qrSize = 120;
+        ctx.drawImage(qrImg, width - qrSize - 20, 20, qrSize, qrSize);
+        // Texto de la credencial
+        ctx.fillStyle = '#333333';
+        ctx.font = 'bold 24px Arial';
+        ctx.fillText('Membresía: ' + miembro.numero, 20, 140);
+        ctx.font = '20px Arial';
+        ctx.fillText('Nombre: ' + miembro.nombre, 20, 170);
+        ctx.fillText('Inicio: ' + formatearFecha(miembro.inicio), 20, 200);
+        ctx.fillText('Caducidad: ' + formatearFecha(miembro.fin), 20, 230);
+        if (miembro.tipo) ctx.fillText('Tipo: ' + miembro.tipo, 20, 260);
+        ctx.fillText('Estado: ' + estadoMiembro(miembro).toUpperCase(), 20, 290);
+        // Convertir a DataURL
+        const dataURL = canvas.toDataURL('image/png');
+        // Crear un overlay modal para mostrar la credencial y permitir la descarga
+        const overlay = document.createElement('div');
+        overlay.id = 'credencial-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.background = 'rgba(0,0,0,0.8)';
+        overlay.style.display = 'flex';
+        overlay.style.flexDirection = 'column';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.zIndex = '10000';
+        // Imagen de la credencial
+        const imgPreview = document.createElement('img');
+        imgPreview.src = dataURL;
+        imgPreview.alt = 'Credencial';
+        imgPreview.style.maxWidth = '90%';
+        imgPreview.style.height = 'auto';
+        // Enlace de descarga
+        const downloadLink = document.createElement('a');
+        downloadLink.href = dataURL;
+        downloadLink.download = 'credencial_' + miembro.numero + '.png';
+        downloadLink.textContent = 'Descargar imagen';
+        downloadLink.style.marginTop = '10px';
+        downloadLink.style.background = '#00796b';
+        downloadLink.style.color = 'white';
+        downloadLink.style.padding = '10px 15px';
+        downloadLink.style.borderRadius = '4px';
+        downloadLink.style.textDecoration = 'none';
+        // Botón para cerrar
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = 'Cerrar';
+        closeBtn.className = 'action';
+        closeBtn.style.marginTop = '10px';
+        closeBtn.addEventListener('click', () => overlay.remove());
+        // Añadir elementos al overlay y mostrarlo
+        overlay.appendChild(imgPreview);
+        overlay.appendChild(downloadLink);
+        overlay.appendChild(closeBtn);
+        document.body.appendChild(overlay);
+      });
+    }
+
+    /**
+     * Abre WhatsApp con un mensaje predefinido que incluye los datos del miembro.
+     * El usuario puede enviar el mensaje manualmente y adjuntar la credencial si
+     * desea. El enlace abre la interfaz de WhatsApp en una nueva pestaña o
+     * aplicación en el móvil.
+     * @param {Object} miembro - Objeto con los datos del miembro.
+     */
+    function enviarWhatsApp(miembro) {
+      const mensaje =
+        'Membresía ' + miembro.numero + '\n' +
+        'Nombre: ' + miembro.nombre + '\n' +
+        'Inicio: ' + formatearFecha(miembro.inicio) + '\n' +
+        'Caducidad: ' + formatearFecha(miembro.fin) + (miembro.tipo ? '\nTipo: ' + miembro.tipo : '') + '\n' +
+        'Estado: ' + estadoMiembro(miembro).toUpperCase();
+      const url = 'https://api.whatsapp.com/send?text=' + encodeURIComponent(mensaje);
+      window.open(url, '_blank');
+    }
+
+    /**
+     * Comparte el código QR de un miembro a través del Web Share API si está
+     * disponible. Se incluye una imagen del QR y un mensaje de agradecimiento
+     * y uso. En navegadores que no soportan compartir archivos, abre un
+     * enlace de WhatsApp con solo el texto como fallback. El usuario deberá
+     * adjuntar manualmente la imagen en ese caso.
+     * @param {Object} miembro
+     */
+    function compartirQR(miembro) {
+      const mensaje = `Gracias ${miembro.nombre} por su apoyo, aquí el QR Code que le dará acceso al Hub. Favor escanear el QR Code en la entrada al entrar y salir para registrar su visita.`;
+      // Comprobar soporte de Web Share con archivos
+      const shareSupported = navigator.share && navigator.canShare && navigator.canShare({ files: [] });
+      if (shareSupported) {
+        fetch(miembro.qr)
+          .then(res => res.blob())
+          .then(blob => {
+            const file = new File([blob], `qr_${miembro.numero}.png`, { type: 'image/png' });
+            navigator.share({
+              files: [file],
+              title: 'Membresía',
+              text: mensaje
+            }).catch(err => {
+              console.error('Error al compartir', err);
+            });
+          });
+      } else {
+        // Fallback a mensaje de texto por WhatsApp
+        const url = 'https://api.whatsapp.com/send?text=' + encodeURIComponent(mensaje);
+        window.open(url, '_blank');
+      }
+
+    /**
+     * Muestra un overlay con el historial de pagos de un miembro y un
+     * formulario para añadir un nuevo pago. Permite exportar los pagos de
+     * este miembro a CSV o PDF. Al guardar un pago, actualiza la tabla y
+     * cierra el overlay cuando se desee.
+     * @param {Object} miembro - Objeto del miembro
+     */
+    function administrarPagos(miembro) {
+      if (!miembro) return;
+      // Crear overlay
+      const overlay = document.createElement('div');
+      overlay.id = 'pagos-overlay';
+      overlay.style.position = 'fixed';
+      overlay.style.top = '0';
+      overlay.style.left = '0';
+      overlay.style.width = '100%';
+      overlay.style.height = '100%';
+      overlay.style.background = 'rgba(0,0,0,0.8)';
+      overlay.style.display = 'flex';
+      overlay.style.flexDirection = 'column';
+      overlay.style.alignItems = 'center';
+      overlay.style.justifyContent = 'center';
+      overlay.style.zIndex = '10000';
+      // Contenedor interno
+      const cont = document.createElement('div');
+      cont.style.background = '#ffffff';
+      cont.style.padding = '20px';
+      cont.style.maxWidth = '90%';
+      cont.style.maxHeight = '90%';
+      cont.style.overflowY = 'auto';
+      cont.style.borderRadius = '8px';
+      // Título
+      const h = document.createElement('h3');
+      h.textContent = `Pagos de ${miembro.nombre} (${miembro.numero})`;
+      cont.appendChild(h);
+      // Tabla de pagos
+      const pagos = cargarPagos().filter(p => p.numero === miembro.numero);
+      const tabla = document.createElement('table');
+      tabla.style.width = '100%';
+      tabla.style.borderCollapse = 'collapse';
+      const thead = document.createElement('thead');
+      const trh = document.createElement('tr');
+      ['Fecha','Cantidad','Tipo'].forEach(t => { const th = document.createElement('th'); th.textContent = t; th.style.border = '1px solid #ddd'; th.style.padding = '6px'; th.style.background = '#f0f0f0'; trh.appendChild(th); });
+      thead.appendChild(trh);
+      tabla.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      // Ordenar pagos por fecha descendente
+      pagos.sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
+      pagos.forEach(p => {
+        const tr = document.createElement('tr');
+        const f = new Date(p.fecha);
+        const tdFecha = document.createElement('td'); tdFecha.textContent = f.toLocaleString('es-PR');
+        const tdMonto = document.createElement('td'); tdMonto.textContent = p.cantidad.toFixed(2);
+        const tdTipo = document.createElement('td'); tdTipo.textContent = p.tipo;
+        [tdFecha, tdMonto, tdTipo].forEach(td => { td.style.border = '1px solid #ddd'; td.style.padding = '6px'; });
+        tr.appendChild(tdFecha);
+        tr.appendChild(tdMonto);
+        tr.appendChild(tdTipo);
+        tbody.appendChild(tr);
+      });
+      tabla.appendChild(tbody);
+      cont.appendChild(tabla);
+      // Formulario para nuevo pago
+      const form = document.createElement('form');
+      form.style.marginTop = '15px';
+      form.style.display = 'flex';
+      form.style.flexDirection = 'column';
+      const lblCant = document.createElement('label'); lblCant.textContent = 'Cantidad'; lblCant.style.marginTop = '10px';
+      const inpCant = document.createElement('input'); inpCant.type = 'number'; inpCant.step = '0.01'; inpCant.min = '0'; inpCant.placeholder = 'Monto'; inpCant.required = true; inpCant.style.padding = '8px'; inpCant.style.border = '1px solid #ccc'; inpCant.style.borderRadius = '4px';
+      const lblTipo = document.createElement('label'); lblTipo.textContent = 'Tipo de membresía'; lblTipo.style.marginTop = '10px';
+      const selTipo = document.createElement('select'); selTipo.style.padding = '8px'; selTipo.style.border = '1px solid #ccc'; selTipo.style.borderRadius = '4px'; selTipo.required = true;
+      // opciones de tipo
+      ['Diaria','Mensual','VIP'].forEach(t => {
+        const opt = document.createElement('option'); opt.value = t; opt.textContent = t; if (miembro.tipo === t) opt.selected = true; selTipo.appendChild(opt);
+      });
+      const btnGuardar = document.createElement('button'); btnGuardar.type = 'submit'; btnGuardar.textContent = 'Registrar pago'; btnGuardar.className = 'action'; btnGuardar.style.marginTop = '10px';
+      form.appendChild(lblCant);
+      form.appendChild(inpCant);
+      form.appendChild(lblTipo);
+      form.appendChild(selTipo);
+      form.appendChild(btnGuardar);
+      form.addEventListener('submit', function(ev) {
+        ev.preventDefault();
+        agregarPago(miembro.numero, inpCant.value, selTipo.value);
+        // Recargar tabla de pagos
+        overlay.remove();
+        administrarPagos(miembro);
+      });
+      cont.appendChild(form);
+      // Botones exportar y cerrar
+      const btnExportCSV = document.createElement('button'); btnExportCSV.type = 'button'; btnExportCSV.textContent = 'Exportar pagos (CSV)'; btnExportCSV.className = 'action'; btnExportCSV.style.marginTop = '10px';
+      btnExportCSV.addEventListener('click', () => {
+        exportarPagosCSV(miembro.numero);
+      });
+      const btnExportPDF = document.createElement('button'); btnExportPDF.type = 'button'; btnExportPDF.textContent = 'Exportar pagos (PDF)'; btnExportPDF.className = 'action'; btnExportPDF.style.marginTop = '10px'; btnExportPDF.style.marginLeft = '5px';
+      btnExportPDF.addEventListener('click', () => {
+        exportarPagosPDF(miembro.numero);
+      });
+      const btnCerrar = document.createElement('button'); btnCerrar.type = 'button'; btnCerrar.textContent = 'Cerrar'; btnCerrar.className = 'action'; btnCerrar.style.marginTop = '10px'; btnCerrar.addEventListener('click', () => overlay.remove());
+      const exportContainer = document.createElement('div'); exportContainer.style.marginTop = '10px';
+      exportContainer.appendChild(btnExportCSV);
+      exportContainer.appendChild(btnExportPDF);
+      exportContainer.appendChild(btnCerrar);
+      cont.appendChild(exportContainer);
+      overlay.appendChild(cont);
+      document.body.appendChild(overlay);
+    }
+    }
+
+    /**
+     * Descarga un archivo con el contenido y tipo MIME especificado. Se utiliza
+     * para exportar los datos en formato CSV (Excel) u otros formatos.
+     * @param {string} contenido - El contenido del archivo
+     * @param {string} nombre - Nombre sugerido de archivo
+     * @param {string} mime - Tipo MIME
+     */
+    function descargarArchivo(contenido, nombre, mime) {
+      const blob = new Blob([contenido], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nombre;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Exporta la lista de miembros a un archivo CSV compatible con Excel.
+     */
+    function exportarMiembrosCSV() {
+      const miembros = cargarMiembros();
+      let csv = 'Número,Nombre,Teléfono,Correo,Tipo,Inicio,Caducidad,Estado\n';
+      miembros.forEach(m => {
+        const estado = estadoMiembro(m);
+        csv += `${m.numero},${m.nombre},${m.telefono ? m.telefono : ''},${m.email ? m.email : ''},${m.tipo ? m.tipo : ''},${formatearFecha(m.inicio)},${formatearFecha(m.fin)},${estado}\n`;
+      });
+      descargarArchivo(csv, 'miembros.csv', 'text/csv;charset=utf-8;');
+    }
+
+    /**
+     * Crea una ventana nueva con una tabla HTML de miembros y abre el cuadro de impresión.
+     */
+    function exportarMiembrosPDF() {
+      const miembros = cargarMiembros();
+      let html = '<html><head><title>Miembros</title>' +
+        '<style>body{font-family:Arial, sans-serif;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ddd;padding:6px;font-size:12px;}th{background:#f0f0f0;}</style>' +
+        '</head><body>';
+      html += '<h1>Lista de miembros</h1>';
+      html += '<table><tr><th>Número</th><th>Nombre</th><th>Teléfono</th><th>Correo</th><th>Tipo</th><th>Inicio</th><th>Caducidad</th><th>Estado</th></tr>';
+      miembros.forEach(m => {
+        const estado = estadoMiembro(m);
+        html += `<tr><td>${m.numero}</td><td>${m.nombre}</td><td>${m.telefono ? m.telefono : ''}</td><td>${m.email ? m.email : ''}</td><td>${m.tipo ? m.tipo : ''}</td><td>${formatearFecha(m.inicio)}</td><td>${formatearFecha(m.fin)}</td><td>${estado}</td></tr>`;
+      });
+      html += '</table></body></html>';
+      const vent = window.open('', '_blank');
+      vent.document.write(html);
+      vent.document.close();
+      vent.focus();
+      vent.print();
+    }
+
+    /**
+     * Exporta los registros de acceso (logs) a un CSV. Si se selecciona una fecha
+     * en el calendario del resumen, se exportan sólo los registros de esa fecha.
+     */
+    function exportarLogsCSV() {
+      const miembros = cargarMiembros();
+      const logs = cargarLogs();
+      const fechaInput = document.getElementById('resumen-fecha');
+      let filtroInicio = null;
+      let filtroFin = null;
+      if (fechaInput && fechaInput.value) {
+        filtroInicio = new Date(fechaInput.value);
+        filtroInicio.setHours(0,0,0,0);
+        filtroFin = new Date(filtroInicio);
+        filtroFin.setDate(filtroFin.getDate() + 1);
+      }
+      let csv = 'Número,Nombre,Tipo,Fecha,Hora\n';
+      logs.forEach(l => {
+        const fechaLog = new Date(l.fecha);
+        if (filtroInicio) {
+          if (fechaLog < filtroInicio || fechaLog >= filtroFin) return;
+        }
+        const m = miembros.find(mi => mi.numero === l.numero);
+        csv += `${l.numero},${m ? m.nombre : ''},${l.tipo},${fechaLog.toLocaleDateString('es-PR')},${fechaLog.toLocaleTimeString('es-PR')}\n`;
+      });
+      const nombre = filtroInicio ? `logs_${fechaInput.value}.csv` : 'logs.csv';
+      descargarArchivo(csv, nombre, 'text/csv;charset=utf-8;');
+    }
+
+    /**
+     * Exporta los registros de acceso a PDF. Respeta la fecha seleccionada en el
+     * calendario si existe; de lo contrario exporta todos los registros.
+     */
+    function exportarLogsPDF() {
+      const miembros = cargarMiembros();
+      const logs = cargarLogs();
+      const fechaInput = document.getElementById('resumen-fecha');
+      let filtroInicio = null;
+      let filtroFin = null;
+      let tituloFecha = '';
+      if (fechaInput && fechaInput.value) {
+        filtroInicio = new Date(fechaInput.value);
+        filtroInicio.setHours(0,0,0,0);
+        filtroFin = new Date(filtroInicio);
+        filtroFin.setDate(filtroFin.getDate() + 1);
+        tituloFecha = ` del ${formatearFecha(fechaInput.value)}`;
+      }
+      let html = '<html><head><title>Registros</title>' +
+        '<style>body{font-family:Arial, sans-serif;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ddd;padding:6px;font-size:12px;}th{background:#f0f0f0;}</style>' +
+        '</head><body>';
+      html += `<h1>Registros de accesos${tituloFecha}</h1>`;
+      html += '<table><tr><th>Número</th><th>Nombre</th><th>Tipo</th><th>Fecha</th><th>Hora</th></tr>';
+      logs.forEach(l => {
+        const fechaLog = new Date(l.fecha);
+        if (filtroInicio) {
+          if (fechaLog < filtroInicio || fechaLog >= filtroFin) return;
+        }
+        const m = miembros.find(mi => mi.numero === l.numero);
+        html += `<tr><td>${l.numero}</td><td>${m ? m.nombre : ''}</td><td>${l.tipo}</td><td>${fechaLog.toLocaleDateString('es-PR')}</td><td>${fechaLog.toLocaleTimeString('es-PR')}</td></tr>`;
+      });
+      html += '</table></body></html>';
+      const vent = window.open('', '_blank');
+      vent.document.write(html);
+      vent.document.close();
+      vent.focus();
+      vent.print();
+    }
+
+    /**
+     * Exporta los pagos a CSV. Si se pasa un número, exporta sólo los pagos
+     * de ese miembro; de lo contrario, exporta todos los pagos.
+     * @param {string} [numero]
+     */
+    function exportarPagosCSV(numero) {
+      const pagos = cargarPagos();
+      const miembros = cargarMiembros();
+      let csv = 'Número,Nombre,Cantidad,Tipo,Fecha,Hora\n';
+      pagos.forEach(p => {
+        if (numero && p.numero !== numero) return;
+        const m = miembros.find(mi => mi.numero === p.numero);
+        const fecha = new Date(p.fecha);
+        csv += `${p.numero},${m ? m.nombre : ''},${p.cantidad.toFixed(2)},${p.tipo},${fecha.toLocaleDateString('es-PR')},${fecha.toLocaleTimeString('es-PR')}\n`;
+      });
+      const nombreArchivo = numero ? `pagos_${numero}.csv` : 'pagos.csv';
+      descargarArchivo(csv, nombreArchivo, 'text/csv;charset=utf-8;');
+    }
+
+    /**
+     * Exporta los pagos a un PDF. Si se proporciona un número de miembro,
+     * sólo exporta sus pagos; de lo contrario exporta todos los registros.
+     * @param {string} [numero]
+     */
+    function exportarPagosPDF(numero) {
+      const pagos = cargarPagos();
+      const miembros = cargarMiembros();
+      let titulo = 'Historial de pagos';
+      if (numero) {
+        const m = miembros.find(mi => mi.numero === numero);
+        titulo += ` de ${m ? m.nombre : numero}`;
+      }
+      let html = '<html><head><title>Pagos</title>' +
+        '<style>body{font-family:Arial, sans-serif;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ddd;padding:6px;font-size:12px;}th{background:#f0f0f0;}</style>' +
+        '</head><body>';
+      html += `<h1>${titulo}</h1>`;
+      html += '<table><tr><th>Número</th><th>Nombre</th><th>Cantidad</th><th>Tipo</th><th>Fecha</th><th>Hora</th></tr>';
+      pagos.forEach(p => {
+        if (numero && p.numero !== numero) return;
+        const m = miembros.find(mi => mi.numero === p.numero);
+        const fecha = new Date(p.fecha);
+        html += `<tr><td>${p.numero}</td><td>${m ? m.nombre : ''}</td><td>${p.cantidad.toFixed(2)}</td><td>${p.tipo}</td><td>${fecha.toLocaleDateString('es-PR')}</td><td>${fecha.toLocaleTimeString('es-PR')}</td></tr>`;
+      });
+      html += '</table></body></html>';
+      const vent = window.open('', '_blank');
+      vent.document.write(html);
+      vent.document.close();
+      vent.focus();
+      vent.print();
+    }
+
+    /**
+     * Variables y funciones para el escaneo automático de códigos QR usando la cámara.
+     * Se utiliza el API BarcodeDetector cuando está disponible (Chrome/Android, etc.).
+     */
+    let escaneoActivo = false;
+    let videoScan;
+    let mediaStream;
+    let detector;
+
+    // Variables de audio para reproducir sonidos de entrada y salida. Estas se cargan
+    // desde localStorage cuando la app se inicia y se actualizan al seleccionar
+    // nuevos archivos de sonido. Si permanecen undefined, se usará un tono
+    // predeterminado generado con Web Audio API.
+    let audioEntrada;
+    let audioSalida;
+
+    /**
+     * Carga los sonidos personalizados de entrada y salida desde localStorage y
+     * crea objetos Audio a partir de ellos. Si no hay sonido almacenado, las
+     * variables quedarán undefined y se usará un beep básico.
+     */
+    function cargarSonidos() {
+      const entradaData = localStorage.getItem('sonido_entrada');
+      const salidaData = localStorage.getItem('sonido_salida');
+      try {
+        if (entradaData) {
+          audioEntrada = new Audio(entradaData);
+        }
+        if (salidaData) {
+          audioSalida = new Audio(salidaData);
+        }
+      } catch (e) {
+        console.error('Error al cargar sonidos personalizados:', e);
+        audioEntrada = undefined;
+        audioSalida = undefined;
+      }
+    }
+
+    /**
+     * Lee un archivo de audio seleccionado por el usuario y lo almacena en
+     * localStorage. Después actualiza las variables de audio. Se muestra un
+     * mensaje breve informando que el sonido se ha actualizado.
+     * @param {Event} event - evento change del input
+     * @param {string} key - clave de localStorage ("sonido_entrada" o "sonido_salida")
+     */
+    function manejarCargaSonido(event, key) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function() {
+        try {
+          localStorage.setItem(key, reader.result);
+          cargarSonidos();
+          alert('Sonido actualizado correctamente.');
+        } catch (e) {
+          alert('Error al guardar el sonido. Es posible que el archivo sea demasiado grande.');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    /**
+     * Reproduce el sonido correspondiente al tipo de acción (Entrada o Salida).
+     * Si se han cargado sonidos personalizados, se usan. De lo contrario,
+     * genera un beep corto mediante Web Audio API, con frecuencias distintas
+     * para entrada (440 Hz) y salida (330 Hz).
+     * @param {string} tipo - "Entrada" o "Salida"
+     */
+    function reproducirSonido(tipo) {
+      let audio;
+      if (tipo === 'Entrada') {
+        audio = audioEntrada;
+      } else {
+        audio = audioSalida;
+      }
+      if (audio) {
+        try {
+          audio.currentTime = 0;
+          audio.play();
+          return;
+        } catch (e) {
+          console.warn('Error al reproducir sonido personalizado:', e);
+        }
+      }
+      // Fallback: beep básico
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = ctx.createOscillator();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(tipo === 'Entrada' ? 440 : 330, ctx.currentTime);
+        const gain = ctx.createGain();
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start();
+        // Descenso rápido del volumen para un beep corto
+        gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.2);
+        setTimeout(() => {
+          oscillator.stop();
+          ctx.close();
+        }, 200);
+      } catch (err) {
+        console.error('No se pudo reproducir el beep de fallback', err);
+      }
+    }
+
+    // Map para limitar la frecuencia de escaneo por miembro (intervalo mínimo: 1 minuto)
+    const ultimaLectura = {};
+
+    /**
+     * Inicia la cámara y comienza a detectar códigos QR en tiempo real. Si el
+     * dispositivo no soporta BarcodeDetector, muestra un mensaje de error.
+     */
+    async function iniciarEscaneo() {
+      if (escaneoActivo) return;
+      const mensajeDiv = document.getElementById('scan-mensaje');
+      mensajeDiv.textContent = '';
+      // Verificar soporte
+      if (!('BarcodeDetector' in window)) {
+        mensajeDiv.textContent = 'El escaneo de QR no es compatible con este dispositivo.';
+        return;
+      }
+      try {
+        // Configurar detector para QR
+        detector = new BarcodeDetector({ formats: ['qr_code'] });
+      } catch (e) {
+        mensajeDiv.textContent = 'Error al inicializar el detector de códigos QR.';
+        return;
+      }
+      escaneoActivo = true;
+      // Mostrar y configurar video
+      videoScan = document.getElementById('qr-video');
+      const btnStart = document.getElementById('btn-iniciar-escanear');
+      const btnStop = document.getElementById('btn-detener-escanear');
+      btnStart.style.display = 'none';
+      btnStop.style.display = 'inline-block';
+      videoScan.style.display = 'block';
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        videoScan.srcObject = mediaStream;
+        await videoScan.play();
+        // Bucle de escaneo
+        const scanLoop = async () => {
+          if (!escaneoActivo) return;
+          try {
+            const barcodes = await detector.detect(videoScan);
+            if (barcodes && barcodes.length > 0) {
+              const code = barcodes[0].rawValue.trim();
+              if (code) {
+                procesarEscaneo(code);
+                // Pausar brevemente para evitar múltiples lecturas del mismo código
+                await new Promise(res => setTimeout(res, 1500));
+              }
+            }
+          } catch (err) {
+            console.error('Error de escaneo:', err);
+          }
+          requestAnimationFrame(scanLoop);
+        };
+        requestAnimationFrame(scanLoop);
+      } catch (err) {
+        console.error('Error al acceder a la cámara', err);
+        mensajeDiv.textContent = 'No se pudo acceder a la cámara.';
+        detenerEscaneo();
+      }
+    }
+
+    /**
+     * Detiene el escaneo y apaga la cámara.
+     */
+    function detenerEscaneo() {
+      if (!escaneoActivo) return;
+      escaneoActivo = false;
+      const btnStart = document.getElementById('btn-iniciar-escanear');
+      const btnStop = document.getElementById('btn-detener-escanear');
+      btnStart.style.display = 'inline-block';
+      btnStop.style.display = 'none';
+      const video = document.getElementById('qr-video');
+      video.pause();
+      video.srcObject = null;
+      video.style.display = 'none';
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+      }
+      mediaStream = null;
+    }
+
+    /**
+     * Procesa el texto detectado por el escáner (número de membresía).
+     * Busca al miembro, determina si debe ser entrada o salida en función del
+     * último registro y actualiza los registros y las listas en pantalla.
+     * @param {string} codigo
+     */
+    function procesarEscaneo(codigo) {
+      const numero = codigo.trim();
+      const miembros = cargarMiembros();
+      const miembro = miembros.find(m => m.numero === numero);
+      const mensajeDiv = document.getElementById('scan-mensaje');
+      if (!miembro) {
+          mensajeDiv.textContent = `No se encontró un miembro para el código ${numero}.`;
+          return;
+      }
+      // Verificar estado de membresía antes de registrar
+      const est = estadoMiembro(miembro);
+      if (est === 'caducado') {
+          mensajeDiv.textContent = `La membresía de ${miembro.nombre} está caducada.`;
+          return;
+      }
+      // Evitar múltiples registros del mismo código en menos de un minuto
+      const ahora = Date.now();
+      if (ultimaLectura[numero] && (ahora - ultimaLectura[numero]) < 60000) {
+          // ignora el escaneo y no registra nuevamente
+          mensajeDiv.textContent = `Espere un momento antes de volver a escanear el código de ${miembro.nombre}.`;
+          return;
+      }
+      // Actualizar última lectura
+      ultimaLectura[numero] = ahora;
+      // Determinar si registrar Entrada o Salida
+      const logsMiembro = cargarLogs().filter(l => l.numero === numero);
+      // Ordenar por fecha ascendente para obtener último registro
+      logsMiembro.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
+      let ultimoTipo = null;
+      if (logsMiembro.length > 0) {
+        ultimoTipo = logsMiembro[logsMiembro.length - 1].tipo;
+      }
+      const nuevoTipo = (ultimoTipo === 'Entrada') ? 'Salida' : 'Entrada';
+      registrarLog(numero, nuevoTipo);
+      mensajeDiv.textContent = `${nuevoTipo} registrada para ${miembro.nombre}.`;
+    }
+
+    /**
+     * Actualiza el resumen de entradas y salidas para una fecha específica
+     * seleccionada. Borra el contenido actual de #resumen-movimientos y
+     * genera una tabla con número, nombre, cantidad de entradas y salidas.
+     * Si no hay movimientos para esa fecha, se indica al usuario.
+     * @param {string} fechaStr - Fecha en formato YYYY-MM-DD
+     */
+    function actualizarResumenParaFecha(fechaStr) {
+      const resumenDiv = document.getElementById('resumen-movimientos');
+      if (!resumenDiv) return;
+      resumenDiv.innerHTML = '';
+      if (!fechaStr) {
+        const p = document.createElement('p');
+        p.textContent = 'Seleccione una fecha para ver el resumen.';
+        resumenDiv.appendChild(p);
+        return;
+      }
+      const fechaInicio = new Date(fechaStr);
+      fechaInicio.setHours(0,0,0,0);
+      const fechaFin = new Date(fechaInicio);
+      fechaFin.setDate(fechaFin.getDate() + 1);
+      const miembros = cargarMiembros();
+      const logs = cargarLogs();
+      const resumenMap = {};
+      logs.forEach(log => {
+        const fLog = new Date(log.fecha);
+        if (fLog >= fechaInicio && fLog < fechaFin) {
+          if (!resumenMap[log.numero]) resumenMap[log.numero] = { entradas: 0, salidas: 0 };
+          if (log.tipo === 'Entrada') resumenMap[log.numero].entradas++;
+          else resumenMap[log.numero].salidas++;
+        }
+      });
+      const h = document.createElement('h3');
+      h.textContent = 'Resumen del ' + formatearFecha(fechaStr);
+      resumenDiv.appendChild(h);
+      const keys = Object.keys(resumenMap);
+      if (keys.length === 0) {
+        const p = document.createElement('p');
+        p.textContent = 'No hay movimientos registrados en la fecha seleccionada.';
+        resumenDiv.appendChild(p);
+        return;
+      }
+      const tabla = document.createElement('table');
+      const thead = document.createElement('thead');
+      const trh = document.createElement('tr');
+      ['Número','Nombre','Entradas','Salidas'].forEach(t => {
+        const th = document.createElement('th'); th.textContent = t; trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+      tabla.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      keys.forEach(num => {
+        const m = miembros.find(mi => mi.numero === num);
+        const datos = resumenMap[num];
+        const tr = document.createElement('tr');
+        const tdNum = document.createElement('td'); tdNum.textContent = num;
+        const tdNom = document.createElement('td'); tdNom.textContent = m ? m.nombre : '';
+        const tdEnt = document.createElement('td'); tdEnt.textContent = datos.entradas;
+        const tdSal = document.createElement('td'); tdSal.textContent = datos.salidas;
+        tr.appendChild(tdNum);
+        tr.appendChild(tdNom);
+        tr.appendChild(tdEnt);
+        tr.appendChild(tdSal);
+        tbody.appendChild(tr);
+      });
+      tabla.appendChild(tbody);
+      resumenDiv.appendChild(tabla);
+    }
+
+    /**
+     * Actualiza las listas de personas dentro del hub y el resumen de
+     * movimientos de hoy y de ayer. Se llama después de registrar un log y
+     * también al cargar la página.
+     */
+    function actualizarDentroYResumen() {
+      const dentroDiv = document.getElementById('dentro-lista');
+      const resumenDiv = document.getElementById('resumen-movimientos');
+      dentroDiv.innerHTML = '<h3>Personas dentro del Hub</h3>';
+      // No limpiar aquí resumenDiv; se actualizará en función de la fecha seleccionada
+      const miembros = cargarMiembros();
+      const logs = cargarLogs();
+      // Determinar quién está dentro actualmente
+      const ultimaAccion = {};
+      logs.forEach(log => {
+        ultimaAccion[log.numero] = log.tipo;
+      });
+      const dentroAhora = miembros.filter(m => ultimaAccion[m.numero] === 'Entrada' && estadoMiembro(m) === 'activo');
+      if (dentroAhora.length === 0) {
+        const p = document.createElement('p');
+        p.textContent = 'No hay miembros dentro en este momento.';
+        dentroDiv.appendChild(p);
+      } else {
+        const ul = document.createElement('ul');
+        dentroAhora.forEach(m => {
+          const li = document.createElement('li');
+          li.textContent = `${m.numero} - ${m.nombre}`;
+          ul.appendChild(li);
+        });
+        dentroDiv.appendChild(ul);
+      }
+      // Al actualizar la lista de personas dentro, también actualizamos el resumen según la fecha seleccionada
+      const fechaInput = document.getElementById('resumen-fecha');
+      if (fechaInput && fechaInput.value) {
+        actualizarResumenParaFecha(fechaInput.value);
+      }
+    }
+
+
+    // Inicializar aplicación
+    window.addEventListener('load', () => {
+      inicializarFechas();
+      mostrarMiembros();
+      // Asignar eventos para recalcular la caducidad cuando cambia el tipo o la fecha de inicio
+      const selectTipo = document.getElementById('reg-tipo');
+      const inputInicio = document.getElementById('reg-inicio');
+      if (selectTipo && inputInicio) {
+        selectTipo.addEventListener('change', actualizarCaducidadPorTipo);
+        inputInicio.addEventListener('change', actualizarCaducidadPorTipo);
+      }
+      // Inicializar vista de control: actualizar listados y asignar botones de escaneo
+      actualizarDentroYResumen();
+      const btnStartScan = document.getElementById('btn-iniciar-escanear');
+      const btnStopScan = document.getElementById('btn-detener-escanear');
+      if (btnStartScan) {
+        btnStartScan.addEventListener('click', iniciarEscaneo);
+      }
+      if (btnStopScan) {
+        btnStopScan.addEventListener('click', detenerEscaneo);
+      }
+
+      // Configurar el selector de fecha para el resumen de movimientos
+      const fechaResumen = document.getElementById('resumen-fecha');
+      if (fechaResumen) {
+        // Establecer la fecha por defecto a hoy
+        const hoy = new Date();
+        fechaResumen.value = hoy.toISOString().slice(0,10);
+        // Mostrar el resumen inicial
+        actualizarResumenParaFecha(fechaResumen.value);
+        // Actualizar resumen al cambiar la fecha
+        fechaResumen.addEventListener('change', () => {
+          actualizarResumenParaFecha(fechaResumen.value);
+        });
+      }
+
+      // Asignar eventos para exportar miembros y logs
+      const btnExpMiembrosCSV = document.getElementById('btn-exp-miembros-csv');
+      const btnExpMiembrosPDF = document.getElementById('btn-exp-miembros-pdf');
+      const btnExpLogsCSV = document.getElementById('btn-exp-logs-csv');
+      const btnExpLogsPDF = document.getElementById('btn-exp-logs-pdf');
+      if (btnExpMiembrosCSV) btnExpMiembrosCSV.addEventListener('click', exportarMiembrosCSV);
+      if (btnExpMiembrosPDF) btnExpMiembrosPDF.addEventListener('click', exportarMiembrosPDF);
+      if (btnExpLogsCSV) btnExpLogsCSV.addEventListener('click', exportarLogsCSV);
+      if (btnExpLogsPDF) btnExpLogsPDF.addEventListener('click', exportarLogsPDF);
+
+      // Botones para exportar pagos globales
+      const btnExpPagosCSV = document.getElementById('btn-exp-pagos-csv');
+      const btnExpPagosPDF = document.getElementById('btn-exp-pagos-pdf');
+      if (btnExpPagosCSV) btnExpPagosCSV.addEventListener('click', () => exportarPagosCSV());
+      if (btnExpPagosPDF) btnExpPagosPDF.addEventListener('click', () => exportarPagosPDF());
+      
+      // Si la página se oculta (por ejemplo al cambiar de pestaña) detenga el escaneo para liberar la cámara
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          detenerEscaneo();
+        }
+      });
+
+      // Cargar sonidos personalizados de localStorage
+      cargarSonidos();
+      // Escuchar cambios en los inputs de sonido para guardar nuevos archivos
+      const inputSonidoEntrada = document.getElementById('sonido-entrada-input');
+      const inputSonidoSalida = document.getElementById('sonido-salida-input');
+      if (inputSonidoEntrada) {
+        inputSonidoEntrada.addEventListener('change', (e) => manejarCargaSonido(e, 'sonido_entrada'));
+      }
+      if (inputSonidoSalida) {
+        inputSonidoSalida.addEventListener('change', (e) => manejarCargaSonido(e, 'sonido_salida'));
+      }
+    });
+
+    // Registrar service worker para habilitar PWA si el navegador lo soporta
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch(err => {
+          console.error('Error al registrar el service worker:', err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
